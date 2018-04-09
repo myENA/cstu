@@ -42,11 +42,11 @@ $ cstu upload --configFile template.yml
 2018-04-09T13:28:48-05:00 |INFO| Your new Template Docker2 with ID faa6300c-e8d4-46d7-be12-ef48aa77e728 is ready for use
 ```
 
-### Installing
+## Installing
 
 Grab the latest release from [HERE](https://github.com/myENA/cstu/releases/)
 
-### Running
+## Running
 
 ##### With config file
 Generate an empty config file to use: 
