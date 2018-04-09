@@ -1,5 +1,6 @@
 # This is an example goreleaser.yaml file with some sane defaults.
 # Make sure to check the documentation at http://goreleaser.com
+project_name: cstu
 builds:
 - env:
   - CGO_ENABLED=
@@ -9,6 +10,8 @@ builds:
     - darwin
     - linux
   ldflags: -s -w -X main.build={{.Version}}
+  hooks:
+    pre: glide -q i --strip-vendor
 nfpm:
   # You can change the name of the package.
   # This is parsed with the Go template engine and the following variables
@@ -62,7 +65,7 @@ archive:
 checksum:
   name_template: 'checksums.txt'
 snapshot:
-  name_template: "{{ .ProjectName }}-next
+  name_template: "{{ .Commit }}-next"
 changelog:
   sort: asc
   filters:
