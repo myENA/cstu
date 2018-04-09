@@ -44,7 +44,7 @@ $ cstu upload --configFile template.yml
 
 ### Installing
 
-Grab the latest release from [HERE](http://example.com)
+Grab the latest release from [HERE](https://github.com/myENA/cstu/releases/)
 
 ### Running
 

@@ -2,7 +2,7 @@ package initialize
 
 import (
 	"github.com/rs/zerolog"
-	"github.com/myENA/ctsu/cmd/upload"
+	"github.com/myENA/cstu/cmd/upload"
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
 )

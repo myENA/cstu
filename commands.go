@@ -1,12 +1,12 @@
 package main
 
 import (
-	"github.com/myENA/ctsu/cmd/initialize"
+	"github.com/myENA/cstu/cmd/initialize"
 	"github.com/mitchellh/cli"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"os"
-	"github.com/myENA/ctsu/cmd/upload"
+	"github.com/myENA/cstu/cmd/upload"
 )
 
 // package global logger
