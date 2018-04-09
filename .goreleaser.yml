@@ -1,0 +1,94 @@
+# This is an example goreleaser.yaml file with some sane defaults.
+# Make sure to check the documentation at http://goreleaser.com
+builds:
+- env:
+  - CGO_ENABLED=
+  binary: ctsu
+  goos:
+    - windows
+    - darwin
+    - linux
+  ldflags: -s -w -X main.build={{.Version}}
+nfpm:
+  # You can change the name of the package.
+  # This is parsed with the Go template engine and the following variables
+  # are available:
+  # - ProjectName
+  # - Tag
+  # - Version (Git tag without `v` prefix)
+  # - Os
+  # - Arch
+  # - Arm (ARM version)
+  # - Env (environment variables)
+  # Default: `{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}`
+  name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+  # Your app's vendor.
+  # Default is empty.
+  vendor: Dustin Hendel
+
+  # Your app's homepage.
+  # Default is empty.
+  homepage: https://github.com/myENA/ctsu
+
+  # Your app's maintainer (probably you).
+  # Default is empty.
+  maintainer: Dustin Hendel <dustinhendel@gmail.com>
+
+  # Your app's description.
+  # Default is empty.
+  description: Cloudstack template updater
+
+  # Your app's license.
+  # Default is empty.
+  license: Apache 2.0
+
+  # Formats to be generated.
+  formats:
+    - deb
+    - rpm
+
+  # Override default /usr/local/bin destination for binaries
+  bindir: /usr/bin
+archive:
+  format: binary
+  name_template: "{{ .ProjectName }}_{{ .Os }}.{{ .Arch }}"
+  replacements:
+    darwin: Darwin
+    linux: Linux
+    windows: Windows
+    386: i386
+    amd64: x86_64
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  name_template: "{{ .ProjectName }}-next
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+release:
+  # Repo in which the release will be created.
+  # Default is extracted from the origin remote URL.
+  github:
+    owner: myENA
+    name: cstu
+
+  # If set to true, will not auto-publish the release.
+  # Default is false.
+  draft: false
+
+  # If set to true, will mark the release as not ready for production.
+  # Default is false.
+  prerelease: false
+
+  # You can change the name of the GitHub release.
+  # This is parsed with the Go template engine and the following variables
+  # are available:
+  # - ProjectName
+  # - Tag
+  # - Version (Git tag without `v` prefix)
+  # Default is ``
+  name_template: "{{.ProjectName}}-v{{.Version}}"
