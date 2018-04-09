@@ -1,4 +1,4 @@
-package: bitbucket.ena.com/go/csUpdater
+package: github.com/myENA/cstu
 import:
 - package: github.com/docker/docker
   subpackages:
