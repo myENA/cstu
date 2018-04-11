@@ -22,10 +22,11 @@ type options struct {
 }
 
 type Command struct {
-	Self string
-	Log  zerolog.Logger
-	args *options
-	cfs  *flag.FlagSet
+	Self  string
+	Log   zerolog.Logger
+	args  *options
+	cfs   *flag.FlagSet
+	tData *cloudstack.Template
 }
 
 func (c *Command) setupFlags(args []string) error {
@@ -40,6 +41,7 @@ func (c *Command) setupFlags(args []string) error {
 	c.cfs.StringVar(&c.args.templateName, "template", "", "CloudStack template to download")
 	c.cfs.StringVar(&c.args.templateID, "templateID", "", "CloudStack template id to download")
 	c.cfs.StringVar(&c.args.zoneID, "zoneID", "", "CloudStack zone id")
+	c.cfs.BoolVar(&c.args.debug, "debug", false, "Enable debug logs")
 
 	if c.args.debug {
 		c.Log.Level(zerolog.DebugLevel)
@@ -65,18 +67,36 @@ func (c *Command) Run(args []string) int {
 
 	cs = cloudstack.NewAsyncClient(c.args.apiURL, c.args.apiKey, c.args.apiSecret, false)
 
-	if c.args.templateID == "" {
-		c.args.templateName = c.args.templateID
+	if c.args.templateName != "" {
+
 		if err := c.setTemplateID(); err != nil {
 			c.Log.Error().Msgf("%s", err)
 			return 1
 		}
 	}
 
+	if c.args.templateID != "" {
+		c.tData, err = c.getTemplateData()
+
+		if err != nil {
+			c.Log.Error().Msgf("%s", err)
+			return 1
+		}
+
+		c.args.templateName = c.tData.Name
+
+	}
+
 	if err := c.extractRequest(); err != nil {
 		c.Log.Error().Msgf("%s", err)
 		return 1
 	}
+
+	if err := c.writeTemplateYAML(); err != nil {
+		c.Log.Error().Msgf("%s", err)
+		return 1
+	}
+
 	return 0
 }
 

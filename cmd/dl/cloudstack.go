@@ -2,6 +2,7 @@ package dl
 
 import (
 	"fmt"
+	"github.com/xanzy/go-cloudstack/cloudstack"
 	"io"
 	"net/http"
 	"os"
@@ -42,7 +43,16 @@ func (c *Command) setTemplateID() error {
 	}
 
 	return nil
+}
 
+func (c *Command) getTemplateData() (*cloudstack.Template, error) {
+	templ, _, err := cs.Template.GetTemplateByID(c.args.templateID, "all")
+
+	if err != nil {
+		return nil, err
+	}
+
+	return templ, nil
 }
 
 func (c *Command) DownloadFile(url string, dest string) error {

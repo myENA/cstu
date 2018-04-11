@@ -46,8 +46,8 @@ type Options struct {
 	IsRouting       bool   `yaml:"isRouting"`
 	RequiresHVM     bool   `yaml:"requiresHVM"`
 	SSHKeyEnabled   bool   `yaml:"sshKeyEnabled"`
-	ProjectID       string `yaml:"projectID"`
-	TemplateTag     string `yaml:"templateTag"`
+	ProjectID       string `yaml:"projectID,omitempty"`
+	TemplateTag     string `yaml:"templateTag,omitempty"`
 	osID            string
 	zoneID          string
 	configFile      string
