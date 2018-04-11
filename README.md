@@ -2,6 +2,10 @@
 A small project to upload cloudstack templates, we use it as apart of a template update process. Creation of this cli app 
 was driven by the desire to automate cloudstack template builds and updates. 
 
+
+## Requirements
+- Docker 17.0.6 ~ 18.0
+
 ## What it does
 The cstu cli app can accept a config file, generated with `cstu init`, or through flags `cstu upload --help`.
 

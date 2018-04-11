@@ -1,12 +1,12 @@
 package main
 
 import (
-	"github.com/myENA/cstu/cmd/initialize"
 	"github.com/mitchellh/cli"
+	"github.com/myENA/cstu/cmd/initialize"
+	"github.com/myENA/cstu/cmd/upload"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"os"
-	"github.com/myENA/cstu/cmd/upload"
 )
 
 // package global logger
@@ -19,6 +19,7 @@ var cliCommands map[string]cli.CommandFactory
 func init() {
 	// init logger
 	logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+	logger.Level(zerolog.InfoLevel)
 
 	// register sub commands
 	cliCommands = map[string]cli.CommandFactory{

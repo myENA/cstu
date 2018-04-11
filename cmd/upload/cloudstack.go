@@ -93,6 +93,12 @@ func (c *Command) watchRegisteredTemplate(cs *cloudstack.CloudStackClient, templ
 		c.Log.Info().Msgf("Checking if template %s is ready: %t", c.args.Name, templ.Isready)
 
 		if !templ.Isready {
+
+			if strings.Contains(templ.Status, "refused") {
+				c.Log.Info().Msgf("Connection refused to %s, please check the url and try again", c.urlPath)
+				return fmt.Errorf("connection refused to %s", c.urlPath)
+			}
+
 			watch = true
 			time.Sleep(sleepTimer * time.Second)
 		} else {

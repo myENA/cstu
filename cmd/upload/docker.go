@@ -4,11 +4,12 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 
-	"context"
 	"fmt"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"net/http"
 	"os"
+	"time"
 )
 
 func (c *Command) newDockerClient() *client.Client {
@@ -28,10 +29,9 @@ func (c *Command) mvTemplateForWeb() error {
 
 func (c *Command) runWebContainer() error {
 	cli := c.newDockerClient()
-	ctx := context.Background()
 
 	c.Log.Info().Msgf("Creating httpd container")
-	createResp, err := c.createContainer(ctx)
+	createResp, err := c.createContainer()
 
 	if err != nil {
 		c.Log.Info().Msgf("%s", err)
@@ -50,7 +50,26 @@ func (c *Command) runWebContainer() error {
 	return nil
 }
 
-func (c *Command) createContainer(ctx context.Context) (container.ContainerCreateCreatedBody, error) {
+func (c *Command) pullHttpd() error {
+	cli := c.newDockerClient()
+
+	c.Log.Info().Msg("Pulling httpd:alpine")
+
+	pullOpts := types.ImagePullOptions{All: true}
+
+	responseBody, err := cli.ImagePull(ctx, "httpd:alpine", pullOpts)
+	defer responseBody.Close()
+
+	if err != nil {
+		c.Log.Error().Msgf("Error pulling httpd:alpine: %s", err)
+		return err
+	}
+
+	return nil
+
+}
+
+func (c *Command) createContainer() (container.ContainerCreateCreatedBody, error) {
 	cli := c.newDockerClient()
 
 	config := &container.Config{
@@ -75,8 +94,30 @@ func (c *Command) createContainer(ctx context.Context) (container.ContainerCreat
 	return cli.ContainerCreate(ctx, config, hostConfig, nil, containerName)
 }
 
-func (c *Command) deleteContainer(ctx context.Context, containerID string) error {
+func (c *Command) deleteContainer(containerID string) error {
 	cli := c.newDockerClient()
 
 	return cli.ContainerRemove(ctx, containerID, types.ContainerRemoveOptions{Force: true})
+}
+
+func (c *Command) containerActive() error {
+	wait := true
+
+	for wait {
+		h := &http.Client{}
+		checkURL := fmt.Sprintf("http://%s", c.args.HostIP)
+		_, err := h.Get(checkURL)
+
+		// The web container will refuse connection until it is ready
+		if err != nil {
+			c.Log.Info().Msg("Web container not ready, if this is taking unusually long please Ctrl+c and retry")
+			wait = true
+			time.Sleep(2 * time.Second)
+		} else {
+			c.Log.Info().Msg("Web container ready! Continuing")
+			wait = false
+		}
+	}
+
+	return nil
 }

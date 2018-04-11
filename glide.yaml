@@ -1,22 +1,26 @@
 package: github.com/myENA/cstu
 import:
 - package: github.com/docker/docker
+  version: ^17.5.0-ce-rc3
   subpackages:
   - api/types
   - api/types/container
   - client
 - package: github.com/docker/go-connections
-  version: v0.3.0
+  version: ^0.3.0
   subpackages:
   - nat
 - package: github.com/mitchellh/cli
+  version: c54c85e9bd492bdba226ffdda55d4e293b79f8e8
 - package: github.com/pkg/errors
-  version: v0.8.0
+  version: ^0.8.0
 - package: github.com/rs/zerolog
-  version: v1.6.0
+  version: ^1.6.0
   subpackages:
   - log
 - package: github.com/xanzy/go-cloudstack
-  version: v2.3.2
+  version: ^2.3.2
   subpackages:
   - cloudstack
+- package: gopkg.in/yaml.v2
+  version: ^2.2.1

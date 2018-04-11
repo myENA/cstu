@@ -10,7 +10,9 @@ import (
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 )
 
 const (
@@ -40,6 +42,7 @@ const (
 	--projectID		Register template for the project
 	--configFile	Path to a config file instead of passing Options
 	--debug		Enable debugging
+	--cleanup	Remove the template from the webroot after completion
 `
 	webPath       = "/opt/cows"
 	containerName = "templateWeb"
@@ -47,6 +50,7 @@ const (
 )
 
 var err error
+var ctx context.Context
 
 type Options struct {
 	Name            string `yaml:"name"`
@@ -73,7 +77,8 @@ type Options struct {
 	osID            string
 	zoneID          string
 	configFile      string
-	debug bool
+	debug           bool
+	cleanup         bool
 }
 
 // Command represents the upload subcommand
@@ -83,6 +88,10 @@ type Command struct {
 	args    *Options
 	urlPath string
 	cID     string
+}
+
+func init() {
+	ctx = context.Background()
 }
 
 func (c *Command) setupFlags(args []string) error {
@@ -117,6 +126,7 @@ func (c *Command) setupFlags(args []string) error {
 	cmdFlags.BoolVar(&c.args.IsRouting, "isRouting", false, "Set if the template type is routing i.e., if template is used to deploy router default: false")
 	cmdFlags.BoolVar(&c.args.IsFeatured, "isFeatured", false, "Set the template to featured default: false")
 	cmdFlags.BoolVar(&c.args.debug, "debug", false, "Enable debugging logs")
+	cmdFlags.BoolVar(&c.args.cleanup, "cleanup", false, "Remove the template from webroot after cleanup")
 	cmdFlags.BoolVar(&c.args.PasswordEnabled, "passwdEnabled", false, "Set the template to Password Enabled default: false")
 
 	// parse Options and ignore error
@@ -130,8 +140,9 @@ func (c *Command) setupFlags(args []string) error {
 	}
 
 	if c.args.debug {
-		c.Log.Level(zerolog.InfoLevel)
+		c.Log.Level(zerolog.DebugLevel)
 	}
+
 	// always okay
 	return nil
 
@@ -187,10 +198,52 @@ func (c *Command) requiredPassed() error {
 
 // Run the upload command
 func (c *Command) Run(args []string) int {
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigChan, syscall.SIGKILL)
+
+	errChan := make(chan int, 10)
+
+	go func() {
+		errChan <- c.register(args)
+	}()
+
+	select {
+	case sig := <-sigChan:
+		c.Log.Info().Msgf("Received interrupt signal: %v", sig)
+		c.Log.Info().Msg("Cleaning up container")
+		if err := c.deleteContainer(c.cID); err != nil {
+			return 1
+		}
+
+		c.Log.Info().Msg("Moving template back")
+		if err := os.Rename(fmt.Sprintf("%s/%s.qcow2", webPath, c.args.Name), c.args.TemplateFile); err != nil {
+			c.Log.Error().Msgf("Failed moving %s.qcow2 back to %s", c.args.Name, c.args.TemplateFile)
+			return 1
+		}
+
+	case err := <-errChan:
+		if err != 0 {
+			log.Printf("Error received: %v", err)
+			os.Exit(1)
+		}
+	}
+
+	return 0
+}
+
+func (c *Command) Synopsis() string {
+	return synopsisMessage
+}
+
+func (c *Command) Help() string {
+	return helpMessage
+
+}
+
+func (c *Command) register(args []string) int {
 	var exists = false
-
 	var existingID string
-
 	c.Log.Info().Msg("Checking Options")
 
 	if err = c.setupFlags(args); err != nil {
@@ -205,21 +258,20 @@ func (c *Command) Run(args []string) int {
 		configFile, err := ioutil.ReadFile(c.args.configFile)
 
 		if err != nil {
-			c.Log.Error().Msgf("%s",err)
+			c.Log.Error().Msgf("%s", err)
 			return 1
 		}
 
 		if err := yaml.Unmarshal(configFile, &c.args); err != nil {
-			c.Log.Error().Msgf("%s",err)
+			c.Log.Error().Msgf("%s", err)
 			return 1
 		}
-	} else {
+	}
 
-		// Make sure required Options are set
-		if err = c.requiredPassed(); err != nil {
-			log.Error().Msg(err.Error())
-			return 1
-		}
+	// Make sure required Options are set
+	if err = c.requiredPassed(); err != nil {
+		log.Error().Msg(err.Error())
+		return 1
 	}
 
 	if _, err := os.Stat(c.args.TemplateFile); os.IsNotExist(err) {
@@ -228,7 +280,7 @@ func (c *Command) Run(args []string) int {
 	}
 
 	if err := c.mvTemplateForWeb(); err != nil {
-		c.Log.Error().Msgf("%s",err)
+		c.Log.Error().Msgf("%s", err)
 		return 1
 	}
 
@@ -241,24 +293,18 @@ func (c *Command) Run(args []string) int {
 	c.args.osID, err = c.getOSID(cs, c.args.OSType)
 
 	if err != nil {
-		c.Log.Error().Msgf("%s",err)
+		c.Log.Error().Msgf("%s", err)
 		return 1
 	}
 	c.Log.Info().Msgf("Getting Zone id for %s", c.args.Zone)
 	c.args.zoneID, _, err = cs.Zone.GetZoneID(c.args.Zone)
 
 	if err != nil {
-		c.Log.Error().Msgf("%s",err)
-		return 1
-	}
-
-	if err := c.runWebContainer(); err != nil {
-		c.Log.Error().Msgf("%s",err)
+		c.Log.Error().Msgf("%s", err)
 		return 1
 	}
 
 	c.Log.Info().Msgf("Checking if template %s exists", c.args.Name)
-
 	templ := c.checkTemplateExists(cs, c.args.Name, c.args.zoneID)
 
 	if templ != nil {
@@ -267,12 +313,26 @@ func (c *Command) Run(args []string) int {
 		existingID = templ.Id
 	}
 
+	if err := c.pullHttpd(); err != nil {
+		return 1
+	}
+
+	if err := c.runWebContainer(); err != nil {
+		c.Log.Error().Msgf("%s", err)
+		return 1
+	}
+
+	c.Log.Info().Msg("Waiting for container to be active")
+	if err := c.containerActive(); err != nil {
+		return 1
+	}
+
 	newTempl, err := c.registerTemplate(cs)
 
 	if err != nil {
 		c.Log.Error().Msgf("%s", err)
 		c.Log.Info().Msg("Cleaning up docker container")
-		if err := c.deleteContainer(context.Background(), c.cID); err != nil {
+		if err := c.deleteContainer(c.cID); err != nil {
 			c.Log.Error().Msgf("%s", err)
 			return 1
 		}
@@ -291,9 +351,9 @@ func (c *Command) Run(args []string) int {
 
 	c.Log.Info().Msgf("Waiting for new template to be ready")
 	if err := c.watchRegisteredTemplate(cs, newID); err != nil {
-		c.Log.Error().Msgf("%s",err)
+		c.Log.Error().Msgf("%s", err)
 		c.Log.Info().Msg("Cleaning up docker container")
-		if err := c.deleteContainer(context.Background(), c.cID); err != nil {
+		if err := c.deleteContainer(c.cID); err != nil {
 			c.Log.Error().Msgf("%s", err)
 			return 1
 		}
@@ -306,20 +366,20 @@ func (c *Command) Run(args []string) int {
 	}
 
 	c.Log.Info().Msg("Stopping the httpd container")
-	if err := c.deleteContainer(context.Background(), c.cID); err != nil {
-		c.Log.Error().Msgf("%s",err)
+	if err := c.deleteContainer(c.cID); err != nil {
+		c.Log.Error().Msgf("%s", err)
 		return 1
 	}
 
 	c.Log.Info().Msgf("Your new Template %s with ID %s is ready for use", c.args.Name, newID)
+
+	if c.args.cleanup {
+		if err := os.Remove(fmt.Sprintf("%s/%s.qcow2", webPath, c.args.Name)); err != nil {
+			c.Log.Error().Msgf("Could not remove the template from the %s, please remove manually: %s",
+				fmt.Sprintf("%s/%s.qcow2", webPath, c.args.Name), err)
+			return 0
+		}
+	}
+
 	return 0
-}
-
-func (c *Command) Synopsis() string {
-	return synopsisMessage
-}
-
-func (c *Command) Help() string {
-	return helpMessage
-
 }
