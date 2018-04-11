@@ -1,6 +1,7 @@
 package upload
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -17,36 +18,9 @@ import (
 
 const (
 	synopsisMessage = "Uploads templates to cloudstack"
-	helpMessage     = `CloudStack template updater
-	--url			CloudStack API URL [$CLOUDSTACK_API_URL] [required]
-	--api-key		CloudStack API KEY [$CLOUDSTACK_API_KEY] [required]
-	--secret-key	CloudStack API URL [$CLOUDSTACK_SECRET_KEY] [required]
-	--host-ip		The host IP address, must be reachable by CloudStack. Used for the registration URL [required]
-	--template-path	File path to the template file to upload to CloudStack [required]
-	--Name 			Cloudstack template Name [required]
-	--DisplayText	CloudStack display test [required]
-	--Format		CloudStack template Format (QCOW2, RAW, VHD and OVA) [required]
-	--hypervisor	The target hypervisor for the template [required]
-	--os			The OS for the template, searches for OS to get the os type id returns error if not found [required]
- 	--tag			Cloudstack template tag
-	--Zone			Cloudstack template Zone, searches CloudStack to get Zone ID
-	--isPublic		Set the template to public
-	--isFeatured	Set the template to featured
-	--passwdEnabled	Set the template to Password Enabled
-	--isDynamic		Set the template as dynamically scalable
-	--extractable	Set the template as extractable
-	--isRouting		Set the template as a routing template, ie. if template is used to deploy router
-	--isRouting		Set the template as a routing template, ie. if template is used to deploy router
-	--hvm			Set if template requires HVM
-	--sshKeyEnabled	Set if template supports the sshkey upload feature
-	--projectID		Register template for the project
-	--configFile	Path to a config file instead of passing Options
-	--debug		Enable debugging
-	--cleanup	Remove the template from the webroot after completion
-`
-	webPath       = "/opt/cows"
-	containerName = "templateWeb"
-	sleepTimer    = 15
+	webPath         = "/opt/cows"
+	containerName   = "templateWeb"
+	sleepTimer      = 15
 )
 
 var err error
@@ -88,6 +62,7 @@ type Command struct {
 	args    *Options
 	urlPath string
 	cID     string
+	cfs     *flag.FlagSet
 }
 
 func init() {
@@ -95,56 +70,43 @@ func init() {
 }
 
 func (c *Command) setupFlags(args []string) error {
-	var cmdFlags *flag.FlagSet
 	// init config if needed
 	if c.args == nil {
 		c.args = new(Options)
 	}
-	cmdFlags = flag.NewFlagSet("upload", flag.ExitOnError)
-	cmdFlags.Usage = func() { fmt.Fprint(os.Stdout, c.Help()); os.Exit(0) }
+	c.cfs = flag.NewFlagSet("upload", flag.ExitOnError)
+	c.cfs.StringVar(&c.args.APIURL, "url", os.Getenv("CLOUDSTACK_API_URL"), "CloudStack API URL [$CLOUDSTACK_API_URL]")
+	c.cfs.StringVar(&c.args.APIKey, "api-key", os.Getenv("CLOUDSTACK_API_KEY"), "CloudStack API KEY [$CLOUDSTACK_API_KEY]")
+	c.cfs.StringVar(&c.args.APISecret, "api-secret", os.Getenv("CLOUDSTACK_SECRET_KEY"), "CloudStack API URL [$CLOUDSTACK_SECRET_KEY]")
+	c.cfs.StringVar(&c.args.HostIP, "host-ip", "", "The host IP address, must be reachable by CloudStack")
+	c.cfs.StringVar(&c.args.configFile, "configFile", "", "Template yaml file")
+	c.cfs.StringVar(&c.args.TemplateFile, "template-path", "", "Path to the template file to upload to CloudStack")
+	c.cfs.StringVar(&c.args.Name, "Name", "", "CloudStack template Name")
+	c.cfs.StringVar(&c.args.DisplayText, "DisplayText", "", "CloudStack display text")
+	c.cfs.StringVar(&c.args.Format, "Format", "", "CloudStack template Format ex. QCOW2")
+	c.cfs.StringVar(&c.args.HyperVisor, "hypervisor", "", "CloudStack hypervisor ex: KVM")
+	c.cfs.StringVar(&c.args.OSType, "os", "", "Template OS-type")
+	c.cfs.StringVar(&c.args.TemplateTag, "tag", "", "Template tag")
+	c.cfs.StringVar(&c.args.Zone, "zone", "", "CloudStack Zone Name")
+	c.cfs.StringVar(&c.args.ProjectID, "projectID", "", "CloudStack ProjectID")
 
-	cmdFlags.StringVar(&c.args.APIURL, "url", os.Getenv("CLOUDSTACK_API_URL"), "CloudStack API URL [$CLOUDSTACK_API_URL]")
-	cmdFlags.StringVar(&c.args.APIKey, "api-key", os.Getenv("CLOUDSTACK_API_KEY"), "CloudStack API KEY [$CLOUDSTACK_API_KEY]")
-	cmdFlags.StringVar(&c.args.APISecret, "api-secret", os.Getenv("CLOUDSTACK_SECRET_KEY"), "CloudStack API URL [$CLOUDSTACK_SECRET_KEY]")
-	cmdFlags.StringVar(&c.args.HostIP, "host-ip", "", "The host IP address, must be reachable by CloudStack")
-	cmdFlags.StringVar(&c.args.configFile, "configFile", "", "Template yaml file")
-	cmdFlags.StringVar(&c.args.TemplateFile, "template-path", "", "Path to the template file to upload to CloudStack")
-	cmdFlags.StringVar(&c.args.Name, "Name", "", "CloudStack template Name")
-	cmdFlags.StringVar(&c.args.DisplayText, "DisplayText", "", "CloudStack display text")
-	cmdFlags.StringVar(&c.args.Format, "Format", "", "CloudStack template Format ex. QCOW2")
-	cmdFlags.StringVar(&c.args.HyperVisor, "hypervisor", "", "CloudStack hypervisor ex: KVM")
-	cmdFlags.StringVar(&c.args.OSType, "os", "", "Template OS-type")
-	cmdFlags.StringVar(&c.args.TemplateTag, "tag", "", "Template tag")
-	cmdFlags.StringVar(&c.args.Zone, "zone", "", "CloudStack Zone Name")
-	cmdFlags.StringVar(&c.args.ProjectID, "projectID", "", "CloudStack ProjectID")
-
-	cmdFlags.BoolVar(&c.args.IsPublic, "isPublic", false, "Set the template to public default: false")
-	cmdFlags.BoolVar(&c.args.IsDynamic, "isDynamic", false, "Set if template contains XS/VMWare tools inorder to support dynamic scaling of VM cpu/memory default: false")
-	cmdFlags.BoolVar(&c.args.SSHKeyEnabled, "sshKeyEnabled", false, "Set if template supports the sshkey upload feature default: false")
-	cmdFlags.BoolVar(&c.args.RequiresHVM, "hvm", false, "Set if this template requires HVM default: false")
-	cmdFlags.BoolVar(&c.args.IsExtractable, "extractable", false, "Set if the template or its derivatives are extractable default: false")
-	cmdFlags.BoolVar(&c.args.IsRouting, "isRouting", false, "Set if the template type is routing i.e., if template is used to deploy router default: false")
-	cmdFlags.BoolVar(&c.args.IsFeatured, "isFeatured", false, "Set the template to featured default: false")
-	cmdFlags.BoolVar(&c.args.debug, "debug", false, "Enable debugging logs")
-	cmdFlags.BoolVar(&c.args.cleanup, "cleanup", false, "Remove the template from webroot after cleanup")
-	cmdFlags.BoolVar(&c.args.PasswordEnabled, "passwdEnabled", false, "Set the template to Password Enabled default: false")
-
-	// parse Options and ignore error
-	if err := cmdFlags.Parse(args); err != nil {
-		return nil
-	}
-
-	// check for remaining garbage
-	if cmdFlags.NArg() > 0 {
-		return fmt.Errorf("unknown non-flag argument sent to command")
-	}
+	c.cfs.BoolVar(&c.args.IsPublic, "isPublic", false, "Set the template to public default: false")
+	c.cfs.BoolVar(&c.args.IsDynamic, "isDynamic", false, "Set if template contains XS/VMWare tools inorder to support dynamic scaling of VM cpu/memory default: false")
+	c.cfs.BoolVar(&c.args.SSHKeyEnabled, "sshKeyEnabled", false, "Set if template supports the sshkey upload feature default: false")
+	c.cfs.BoolVar(&c.args.RequiresHVM, "hvm", false, "Set if this template requires HVM default: false")
+	c.cfs.BoolVar(&c.args.IsExtractable, "extractable", true, "Set if the template or its derivatives are extractable default: false")
+	c.cfs.BoolVar(&c.args.IsRouting, "isRouting", false, "Set if the template type is routing i.e., if template is used to deploy router default: false")
+	c.cfs.BoolVar(&c.args.IsFeatured, "isFeatured", false, "Set the template to featured default: false")
+	c.cfs.BoolVar(&c.args.debug, "debug", false, "Enable debugging logs")
+	c.cfs.BoolVar(&c.args.cleanup, "cleanup", false, "Remove the template from webroot after cleanup")
+	c.cfs.BoolVar(&c.args.PasswordEnabled, "passwdEnabled", false, "Set the template to Password Enabled default: false")
 
 	if c.args.debug {
 		c.Log.Level(zerolog.DebugLevel)
 	}
 
 	// always okay
-	return nil
+	return c.cfs.Parse(args)
 
 }
 
@@ -198,6 +160,12 @@ func (c *Command) requiredPassed() error {
 
 // Run the upload command
 func (c *Command) Run(args []string) int {
+
+	if err := c.setupFlags(args); err != nil {
+		c.Log.Error().Msgf("%s", err)
+		return 1
+	}
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	signal.Notify(sigChan, syscall.SIGKILL)
@@ -237,19 +205,20 @@ func (c *Command) Synopsis() string {
 }
 
 func (c *Command) Help() string {
-	return helpMessage
+	if c.cfs == nil {
+		c.setupFlags(nil)
+	}
 
+	b := &bytes.Buffer{}
+	c.cfs.SetOutput(b)
+	c.cfs.Usage()
+	return b.String()
 }
 
 func (c *Command) register(args []string) int {
+
 	var exists = false
 	var existingID string
-	c.Log.Info().Msg("Checking Options")
-
-	if err = c.setupFlags(args); err != nil {
-		c.Log.Error().Msgf("[Error] Setup failed: %s", err.Error())
-		return 1
-	}
 
 	c.Log.Info().Msgf("Config File: %s", c.args.configFile)
 	if c.args.configFile != "" {

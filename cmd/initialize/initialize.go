@@ -1,26 +1,26 @@
 package initialize
 
 import (
-	"github.com/rs/zerolog"
 	"github.com/myENA/cstu/cmd/upload"
+	"github.com/rs/zerolog"
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
 )
 
 const (
 	synopsisMessage = "Writes a blank template.yml"
-	helpMessage = "ctsu init creates a blank template config file for the upload command"
+	helpMessage     = "ctsu init creates a blank template config file for the upload command"
 )
 
 // Command represents the upload subcommand
 type Command struct {
-	Self    string
-	Log     zerolog.Logger
+	Self string
+	Log  zerolog.Logger
 }
 
 func (c *Command) Run(args []string) int {
 	configYaml := &upload.Options{}
-
+	configYaml.IsExtractable = true
 	config, err := yaml.Marshal(configYaml)
 
 	if err != nil {
@@ -35,8 +35,6 @@ func (c *Command) Run(args []string) int {
 
 	return 0
 }
-
-
 
 func (c *Command) Synopsis() string {
 	return synopsisMessage

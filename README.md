@@ -18,6 +18,7 @@ The cstu cli app can accept a config file, generated with `cstu init`, or throug
 - Waits for the new template to be ready for use
 - Deletes the older template if one was found
 - Cleans up the docker container
+- Can also download templates as long as they are extractable `cstu dl --help`
 
 ```bash
 $ cstu upload --configFile template.yml
@@ -65,8 +66,13 @@ cstu upload --zone ZONE_NAME --template /path/to/template --format qcow2 --hyper
   --name TemplateName --host-ip YourHostIP --os "CentOS 7" \
   --displayText "Centos Docker Image"
 ```
+##### Download template
+```bash
+$ ./cstu dl --templateID f7575949-22f1-4818-ab5e-462f3f4476af --zoneID 34b1a1a0-a8ba-47d1-a074-fb29bd5fe5f2
 
-
+2018-04-11T13:11:23-05:00 |INFO| Downloading template from http://10.172.0.4/userdata/bbe010ed-7301-481a-a3f0-19ba2dfbe45d.qcow2
+2018-04-11T13:11:43-05:00 |INFO| Wrote template  size: 1588461568
+```
 ## Build
 
 ```bash
