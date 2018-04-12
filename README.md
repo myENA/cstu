@@ -19,6 +19,7 @@ The cstu cli app can accept a config file, generated with `cstu init`, or throug
 - Deletes the older template if one was found
 - Cleans up the docker container
 - Can also download templates as long as they are extractable `cstu dl --help`
+- When downloading a template, cstu writes a template.yml file based on the metadata it gets back from CloudStack. It also grabs the host IP address
 
 ```bash
 $ cstu upload --configFile template.yml

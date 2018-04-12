@@ -5,6 +5,7 @@ import (
 	"github.com/myENA/cstu/cmd/upload"
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
+	"net"
 )
 
 func (c *Command) writeTemplateYAML() error {
@@ -38,9 +39,26 @@ func (c *Command) writeTemplateYAML() error {
 		return err
 	}
 
+	hostIP := c.getOutboundIP()
+
+	c.Log.Info().Msgf("Writing template.yml file with hostIP of : %s", hostIP)
 	if err := ioutil.WriteFile("template.yml", templateYAML, 0766); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+// Get preferred outbound ip of this machine
+// https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go
+func (c *Command) getOutboundIP() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		c.Log.Fatal().Msgf("%s", err)
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+
+	return localAddr.IP.String()
 }
