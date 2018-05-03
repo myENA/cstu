@@ -30,7 +30,11 @@ func (c *Command) getOSID(cs *cloudstack.CloudStackClient, osName string) (strin
 	}
 
 	if osID == "" {
-		cs.GuestOS.ListOsTypes(nil)
+		osTypes, err := cs.GuestOS.ListOsTypes(nil)
+
+		if err != nil {
+			return "", err
+		}
 		return "", fmt.Errorf("availabe os types are %v", osTypes.OsTypes)
 	}
 
@@ -121,7 +125,7 @@ func (c *Command) deleteExistingTemplate(cs *cloudstack.CloudStackClient, existi
 	}
 
 	if !delResp.Success {
-		return fmt.Errorf("deleting the existing template failed, please maually delete it from CloudSTack: %s", delResp.Displaytext)
+		return fmt.Errorf("deleting the existing template failed, please maually delete it from CloudStack: %s", delResp.Displaytext)
 	}
 
 	c.Log.Info().Msgf("Template deleted: %s", delResp.Displaytext)

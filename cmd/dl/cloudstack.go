@@ -36,13 +36,10 @@ func (c *Command) isExtractable() bool {
 }
 
 func (c *Command) setTemplateID() error {
+	var err error
 	c.args.templateID, _, err = cs.Template.GetTemplateID(c.args.templateName, "all", c.args.zoneID)
 
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 func (c *Command) getTemplateData() (*cloudstack.Template, error) {
@@ -57,7 +54,7 @@ func (c *Command) getTemplateData() (*cloudstack.Template, error) {
 
 func (c *Command) DownloadFile(url string, dest string) error {
 	webCLient := &http.Client{}
-	qcow := ""
+	var qcow string
 	if c.args.templateName != "" {
 		qcow = c.args.templateName
 	} else {
@@ -73,12 +70,12 @@ func (c *Command) DownloadFile(url string, dest string) error {
 	defer wr.Close()
 
 	resp, err := webCLient.Get(url)
-	defer resp.Body.Close()
 
 	if err != nil {
 		c.Log.Error().Msgf("Error getting template: %s", err)
 		return err
 	}
+	defer resp.Body.Close()
 
 	c.Log.Info().Msgf("Downloading template from %s", url)
 	wrSize, err := io.Copy(wr, resp.Body)

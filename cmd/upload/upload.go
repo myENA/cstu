@@ -3,13 +3,16 @@ package upload
 import (
 	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"github.com/myENA/cstu/cmd"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/xanzy/go-cloudstack/cloudstack"
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -23,36 +26,16 @@ const (
 	sleepTimer      = 15
 )
 
-var err error
 var ctx context.Context
 
 type Options struct {
-	Name            string `yaml:"name"`
-	APIURL          string `yaml:"apiURL"`
-	APISecret       string `yaml:"apiSecret"`
-	APIKey          string `yaml:"apiKey"`
-	HostIP          string `yaml:"hostIP"`
-	TemplateFile    string `yaml:"templateFile"`
-	OSType          string `yaml:"osType"`
-	Zone            string `yaml:"zone"`
-	Format          string `yaml:"format"`
-	HyperVisor      string `yaml:"hypervisor"`
-	DisplayText     string `yaml:"displayText"`
-	IsPublic        bool   `yaml:"isPublic"`
-	IsFeatured      bool   `yaml:"isFeatured"`
-	PasswordEnabled bool   `yaml:"passwordEnabled"`
-	IsDynamic       bool   `yaml:"isDynamic"`
-	IsExtractable   bool   `yaml:"isExtractable"`
-	IsRouting       bool   `yaml:"isRouting"`
-	RequiresHVM     bool   `yaml:"requiresHVM"`
-	SSHKeyEnabled   bool   `yaml:"sshKeyEnabled"`
-	ProjectID       string `yaml:"projectID,omitempty"`
-	TemplateTag     string `yaml:"templateTag,omitempty"`
-	osID            string
-	zoneID          string
-	configFile      string
-	debug           bool
-	cleanup         bool
+	cmd.TemplateYAML `yaml:",inline"`
+	osID             string
+	zoneID           string
+	configFile       string
+	debug            bool
+	cleanup          bool
+	system           bool
 }
 
 // Command represents the upload subcommand
@@ -100,6 +83,7 @@ func (c *Command) setupFlags(args []string) error {
 	c.cfs.BoolVar(&c.args.debug, "debug", false, "Enable debugging logs")
 	c.cfs.BoolVar(&c.args.cleanup, "cleanup", false, "Remove the template from webroot after cleanup")
 	c.cfs.BoolVar(&c.args.PasswordEnabled, "passwdEnabled", false, "Set the template to Password Enabled default: false")
+	c.cfs.BoolVar(&c.args.system, "system-service", false, "Use the system httpd service. Must still have a directory at /opt/cows")
 
 	if c.args.debug {
 		c.Log.Level(zerolog.DebugLevel)
@@ -126,10 +110,10 @@ func (c *Command) requiredPassed() error {
 
 	if c.args.Format == "" {
 		return fmt.Errorf("--Format must be passed")
-	} else {
-		if !strings.ContainsAny("QCOW2 RAW VHD OVA", strings.ToUpper(c.args.Format)) {
-			return fmt.Errorf("supported formats are QCOW2, RAW, VHD and OVA")
-		}
+	}
+
+	if !strings.ContainsAny("QCOW2 RAW VHD OVA", strings.ToUpper(c.args.Format)) {
+		return fmt.Errorf("supported formats are QCOW2, RAW, VHD and OVA")
 	}
 
 	if c.args.HyperVisor == "" {
@@ -168,7 +152,7 @@ func (c *Command) Run(args []string) int {
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	signal.Notify(sigChan, syscall.SIGKILL)
+	signal.Notify(sigChan, syscall.SIGTERM)
 
 	errChan := make(chan int, 10)
 
@@ -216,7 +200,7 @@ func (c *Command) Help() string {
 }
 
 func (c *Command) register(args []string) int {
-
+	var err error
 	var exists = false
 	var existingID string
 
@@ -235,11 +219,12 @@ func (c *Command) register(args []string) int {
 			c.Log.Error().Msgf("%s", err)
 			return 1
 		}
+
 	}
 
 	// Make sure required Options are set
 	if err = c.requiredPassed(); err != nil {
-		log.Error().Msg(err.Error())
+		c.Log.Error().Msg(err.Error())
 		return 1
 	}
 
@@ -253,9 +238,14 @@ func (c *Command) register(args []string) int {
 		return 1
 	}
 
+	hostIP := cmd.GetOutboundIP()
+
+	if hostIP != c.args.HostIP {
+		c.args.HostIP = hostIP
+	}
+
 	c.urlPath = fmt.Sprintf("http://%s", c.args.HostIP)
 
-	c.Log.Debug().Msgf("URL: %s, APIKEY: %s, SECRET: %s", c.args.APIURL, c.args.APIKey, c.args.APISecret)
 	cs := cloudstack.NewClient(c.args.APIURL, c.args.APIKey, c.args.APISecret, false)
 
 	c.Log.Info().Msgf("Getting os id for %s", c.args.OSType)
@@ -277,33 +267,37 @@ func (c *Command) register(args []string) int {
 	templ := c.checkTemplateExists(cs, c.args.Name, c.args.zoneID)
 
 	if templ != nil {
-		c.Log.Info().Msg("Found a template with the same Name, saving ID for deletion later")
+		c.Log.Info().Msgf("Found a template with the same Name, saving ID %s for deletion later", templ.Id)
+		c.args.TemplateTag = templ.Templatetag
 		exists = true
 		existingID = templ.Id
 	}
 
-	if err := c.pullHttpd(); err != nil {
-		return 1
-	}
-
-	if err := c.runWebContainer(); err != nil {
-		c.Log.Error().Msgf("%s", err)
-		return 1
-	}
-
-	c.Log.Info().Msg("Waiting for container to be active")
-	if err := c.containerActive(); err != nil {
-		return 1
+	if !c.args.system {
+		if errCode := c.startWebContainer(); errCode != 0 {
+			return errCode
+		}
+	} else {
+		if err := checkSystemHTTPPort(); err != nil {
+			c.Log.Error().Msgf("Error checking host http service port: %s. Trying to start docker container")
+			c.args.system = false
+			if errCode := c.startWebContainer(); errCode != 0 {
+				return errCode
+			}
+		}
 	}
 
 	newTempl, err := c.registerTemplate(cs)
 
 	if err != nil {
 		c.Log.Error().Msgf("%s", err)
-		c.Log.Info().Msg("Cleaning up docker container")
-		if err := c.deleteContainer(c.cID); err != nil {
-			c.Log.Error().Msgf("%s", err)
-			return 1
+
+		if !c.args.system {
+			c.Log.Info().Msg("Cleaning up docker container")
+			if err := c.deleteContainer(c.cID); err != nil {
+				c.Log.Error().Msgf("%s", err)
+				return 1
+			}
 		}
 		return 1
 	}
@@ -321,25 +315,31 @@ func (c *Command) register(args []string) int {
 	c.Log.Info().Msgf("Waiting for new template to be ready")
 	if err := c.watchRegisteredTemplate(cs, newID); err != nil {
 		c.Log.Error().Msgf("%s", err)
-		c.Log.Info().Msg("Cleaning up docker container")
-		if err := c.deleteContainer(c.cID); err != nil {
-			c.Log.Error().Msgf("%s", err)
-			return 1
+		if !c.args.system {
+			c.Log.Info().Msg("Cleaning up docker container")
+			if err := c.deleteContainer(c.cID); err != nil {
+				c.Log.Error().Msgf("%s", err)
+				return 1
+			}
 		}
 		return 1
 	}
 
 	if exists {
 		c.Log.Info().Msgf("Deleting old template id %s", existingID)
-		c.deleteExistingTemplate(cs, existingID)
+		if err := c.deleteExistingTemplate(cs, existingID); err != nil {
+			c.Log.Error().Msgf("%s", err)
+			return 1
+		}
 	}
 
-	c.Log.Info().Msg("Stopping the httpd container")
-	if err := c.deleteContainer(c.cID); err != nil {
-		c.Log.Error().Msgf("%s", err)
-		return 1
+	if !c.args.system {
+		c.Log.Info().Msg("Stopping the httpd container")
+		if err := c.deleteContainer(c.cID); err != nil {
+			c.Log.Error().Msgf("%s", err)
+			return 1
+		}
 	}
-
 	c.Log.Info().Msgf("Your new Template %s with ID %s is ready for use", c.args.Name, newID)
 
 	if c.args.cleanup {
@@ -348,6 +348,41 @@ func (c *Command) register(args []string) int {
 				fmt.Sprintf("%s/%s.qcow2", webPath, c.args.Name), err)
 			return 0
 		}
+	}
+
+	return 0
+}
+
+func checkSystemHTTPPort() error {
+	client := http.Client{}
+
+	resp, err := client.Get(fmt.Sprintf("http://%s", cmd.GetOutboundIP()))
+
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode != 200 {
+		return errors.New("unable to verify http service is running on port 80")
+	}
+
+	return nil
+
+}
+
+func (c *Command) startWebContainer() int {
+	if err := c.pullHttpd(); err != nil {
+		return 1
+	}
+
+	if err := c.runWebContainer(); err != nil {
+		c.Log.Error().Msgf("%s", err)
+		return 1
+	}
+
+	c.Log.Info().Msg("Waiting for container to be active")
+	if err := c.containerActive(); err != nil {
+		return 1
 	}
 
 	return 0

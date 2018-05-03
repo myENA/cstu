@@ -13,7 +13,6 @@ const (
 	synopsisMessage = "Download a CloudStack template"
 )
 
-var err error
 var cs *cloudstack.CloudStackClient
 
 type options struct {
@@ -47,20 +46,17 @@ func (c *Command) setupFlags(args []string) error {
 		c.Log.Level(zerolog.DebugLevel)
 	}
 
-	if c.cfs.NArg() == 0 {
-
-	}
-
 	return c.cfs.Parse(args)
 }
 
 func (c *Command) Run(args []string) int {
-	if err := c.setupFlags(args); err != nil {
+	var err error
+	if err = c.setupFlags(args); err != nil {
 		c.Log.Error().Msgf("%s", err)
 		return 1
 	}
 
-	if err := c.checkRequired(); err != nil {
+	if err = c.checkRequired(); err != nil {
 		c.Log.Error().Msgf("%s", err)
 		return 1
 	}
@@ -69,7 +65,7 @@ func (c *Command) Run(args []string) int {
 
 	if c.args.templateName != "" {
 
-		if err := c.setTemplateID(); err != nil {
+		if err = c.setTemplateID(); err != nil {
 			c.Log.Error().Msgf("%s", err)
 			return 1
 		}
@@ -87,12 +83,12 @@ func (c *Command) Run(args []string) int {
 
 	}
 
-	if err := c.extractRequest(); err != nil {
+	if err = c.extractRequest(); err != nil {
 		c.Log.Error().Msgf("%s", err)
 		return 1
 	}
 
-	if err := c.writeTemplateYAML(); err != nil {
+	if err = c.writeTemplateYAML(); err != nil {
 		c.Log.Error().Msgf("%s", err)
 		return 1
 	}
@@ -107,7 +103,9 @@ func (c *Command) Synopsis() string {
 func (c *Command) Help() string {
 
 	if c.cfs == nil {
-		c.setupFlags(nil)
+		if err := c.setupFlags(nil); err != nil {
+			return err.Error()
+		}
 	}
 
 	b := &bytes.Buffer{}
