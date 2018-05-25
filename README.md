@@ -58,8 +58,44 @@ Grab the latest release from [HERE](https://github.com/myENA/cstu/releases/)
 Generate an empty config file to use: 
 ```bash
 cstu init
+```
+Sample config File:
+```yml
+name: "Linux_SLES_12.3"
+environments:
+  - name: "qaz1"
+    zones:
+      - "QA-ZONE-01"
+    apiURL: "http://api/url"
+    apiSecret: "SecretKey"
+    apiKey: "apiKey"
+  - name: "qaz2"
+    zones:
+      - "QA-ZONE-02"
+    apiURL: "http://api/url"
+    apiSecret: "SecretKey"
+    apiKey: "apiKey"
+# This can be left blank. CSTU grabs the host IP to make sure this is valid
+hostIP: "HostIP for the machine hosting the image"
+templateFile: "out/Linux_SLES_12.3.qcow2"
+osType: "Other PV Virtio-SCSI (64-bit)"
+format: "qcow2"
+hypervisor: "kvm"
+displayText: "Linux_SLES_12.3"
+isPublic: true
+isFeatured: true
+passwordEnabled: true
+isDynamic: false
+isExtractable: true
+isRouting: false
+requiresHVM: false
+sshKeyEnabled: false
+templateTag: "version=12.3"
+```
+```bash
 cstu upload --configFile template.yml
 ```
+
 ##### Without config file
 ```bash
 cstu upload --zone ZONE_NAME --template /path/to/template --format qcow2 --hypervisor kvm \
@@ -67,6 +103,11 @@ cstu upload --zone ZONE_NAME --template /path/to/template --format qcow2 --hyper
   --name TemplateName --host-ip YourHostIP --os "CentOS 7" \
   --displayText "Centos Docker Image"
 ```
+##### Without docker container
+```bash
+cstu upload --configFile conf.yml --system-service
+```
+
 ##### Download template
 ```bash
 $ ./cstu dl --templateID f7575949-22f1-4818-ab5e-462f3f4476af --zoneID 34b1a1a0-a8ba-47d1-a074-fb29bd5fe5f2
