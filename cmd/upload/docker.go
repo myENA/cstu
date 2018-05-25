@@ -9,6 +9,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -23,8 +24,23 @@ func (c *Command) newDockerClient() *client.Client {
 	return cli
 }
 
-func (c *Command) mvTemplateForWeb() error {
-	return os.Rename(c.args.TemplateFile, fmt.Sprintf("%s/%s.qcow2", webPath, c.args.Name))
+func (c *Command) templateToWebRoot() error {
+	link := filepath.Join(webPath, c.args.Name+".qcow2")
+	cwd, err := os.Getwd()
+
+	if err != nil {
+		return err
+	}
+
+	if !filepath.IsAbs(c.args.TemplateFile) {
+		c.args.TemplateFile = filepath.Join(cwd, c.args.TemplateFile)
+	}
+
+	if _, err := os.Stat(link); os.IsNotExist(err) {
+		return os.Symlink(filepath.Clean(c.args.TemplateFile), link)
+	}
+
+	return nil
 }
 
 func (c *Command) runWebContainer() error {

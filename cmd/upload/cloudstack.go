@@ -43,18 +43,18 @@ func (c *Command) getOSID(cs *cloudstack.CloudStackClient, osName string) (strin
 
 func (c *Command) checkTemplateExists(cs *cloudstack.CloudStackClient, templateName, zoneID string) *cloudstack.Template {
 
-	templates, count, err := cs.Template.GetTemplateByName(templateName, "all", zoneID)
+	template, _, err := cs.Template.GetTemplateByName(templateName, "all", zoneID)
 
 	if err != nil {
 		c.Log.Info().Msgf("%s", err)
 		return nil
 	}
 
-	if count == 0 {
+	if template == nil {
 		return nil
 	}
 
-	return templates
+	return template
 }
 
 func (c *Command) registerTemplate(cs *cloudstack.CloudStackClient) (*cloudstack.RegisterTemplateResponse, error) {
@@ -85,8 +85,13 @@ func (c *Command) registerTemplate(cs *cloudstack.CloudStackClient) (*cloudstack
 
 func (c *Command) watchRegisteredTemplate(cs *cloudstack.CloudStackClient, templateID string) error {
 	var watch = true
-
+	var watched int
+	watchLimit := 20
 	for watch {
+
+		if watched == watchLimit {
+			return errors.New("Template is taking longer than expected to upload, cancelling upload")
+		}
 
 		templ, _, err := cs.Template.GetTemplateByID(templateID, "all")
 
@@ -94,17 +99,17 @@ func (c *Command) watchRegisteredTemplate(cs *cloudstack.CloudStackClient, templ
 			return err
 		}
 
-		c.Log.Info().Msgf("Checking if template %s is ready: %t", c.args.Name, templ.Isready)
+		c.Log.Info().Msgf("Checking if template %s is ready: %t status: %s", c.args.Name, templ.Isready, templ.Status)
 
 		if !templ.Isready {
-
-			if strings.Contains(templ.Status, "refused") {
-				c.Log.Info().Msgf("Connection refused to %s, please check the url and try again", c.urlPath)
-				return fmt.Errorf("connection refused to %s", c.urlPath)
+			if !strings.Contains(templ.Status, "Downloaded") && templ.Status != "" && templ.Status != "Installing Template" && templ.Status != "Download Complete" {
+				return fmt.Errorf("connection error to %s with status: %s, please check the url and try again", c.urlPath, templ.Status)
 			}
 
 			watch = true
+			watched += 1
 			time.Sleep(sleepTimer * time.Second)
+
 		} else {
 			watch = false
 		}
@@ -114,22 +119,23 @@ func (c *Command) watchRegisteredTemplate(cs *cloudstack.CloudStackClient, templ
 	return nil
 }
 
-func (c *Command) deleteExistingTemplate(cs *cloudstack.CloudStackClient, existing string) error {
+func (c *Command) deleteExistingTemplate(cs *cloudstack.CloudStackClient, existing string) {
 
 	delParams := cs.Template.NewDeleteTemplateParams(existing)
 
 	delResp, err := cs.Template.DeleteTemplate(delParams)
 
 	if err != nil {
-		return err
+		c.Log.Error().Msgf("Error deleting template id %s: %s", existing, err)
 	}
 
-	if !delResp.Success {
-		return fmt.Errorf("deleting the existing template failed, please maually delete it from CloudStack: %s", delResp.Displaytext)
+	c.Log.Info().Msgf("Response: %+v", delResp.Success)
+
+	if delResp.Success {
+
+		c.Log.Error().Msgf("deleting the existing template failed, please manually delete it from CloudStack: %s", delResp.Displaytext)
+	} else {
+		c.Log.Info().Msgf("Template deleted: %s", delResp.Displaytext)
 	}
-
-	c.Log.Info().Msgf("Template deleted: %s", delResp.Displaytext)
-
-	return nil
 
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/mitchellh/cli"
-	"github.com/myENA/cstu/cmd/dl"
 	"github.com/myENA/cstu/cmd/initialize"
 	"github.com/myENA/cstu/cmd/upload"
 	"github.com/rs/zerolog"
@@ -32,12 +31,6 @@ func init() {
 		},
 		"init": func() (cli.Command, error) {
 			return &initialize.Command{
-				Self: os.Args[0],
-				Log:  logger,
-			}, nil
-		},
-		"dl": func() (cli.Command, error) {
-			return &dl.Command{
 				Self: os.Args[0],
 				Log:  logger,
 			}, nil

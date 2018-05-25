@@ -57,20 +57,24 @@ func (c *Command) setupFlags(args []string) error {
 	if c.args == nil {
 		c.args = new(Options)
 	}
+
+	environment := cmd.CloudstackEnvironment{}
+	var zones string
+
 	c.cfs = flag.NewFlagSet("upload", flag.ExitOnError)
-	c.cfs.StringVar(&c.args.APIURL, "url", os.Getenv("CLOUDSTACK_API_URL"), "CloudStack API URL [$CLOUDSTACK_API_URL]")
-	c.cfs.StringVar(&c.args.APIKey, "api-key", os.Getenv("CLOUDSTACK_API_KEY"), "CloudStack API KEY [$CLOUDSTACK_API_KEY]")
-	c.cfs.StringVar(&c.args.APISecret, "api-secret", os.Getenv("CLOUDSTACK_SECRET_KEY"), "CloudStack API URL [$CLOUDSTACK_SECRET_KEY]")
+	c.cfs.StringVar(&environment.APIURL, "url", os.Getenv("CLOUDSTACK_API_URL"), "CloudStack API URL [$CLOUDSTACK_API_URL]")
+	c.cfs.StringVar(&environment.APIKey, "api-key", os.Getenv("CLOUDSTACK_API_KEY"), "CloudStack API KEY [$CLOUDSTACK_API_KEY]")
+	c.cfs.StringVar(&environment.APISecret, "api-secret", os.Getenv("CLOUDSTACK_SECRET_KEY"), "CloudStack API URL [$CLOUDSTACK_SECRET_KEY]")
 	c.cfs.StringVar(&c.args.HostIP, "host-ip", "", "The host IP address, must be reachable by CloudStack")
 	c.cfs.StringVar(&c.args.configFile, "configFile", "", "Template yaml file")
-	c.cfs.StringVar(&c.args.TemplateFile, "template-path", "", "Path to the template file to upload to CloudStack")
-	c.cfs.StringVar(&c.args.Name, "Name", "", "CloudStack template Name")
+	c.cfs.StringVar(&c.args.TemplateFile, "template-path", os.Getenv("CSTU_TEMPLATEFILE"), "Path to the template file to upload to CloudStack")
+	c.cfs.StringVar(&c.args.Name, "Name", os.Getenv("CSTU_TEMPLATE_NAME"), "CloudStack template Name")
 	c.cfs.StringVar(&c.args.DisplayText, "DisplayText", "", "CloudStack display text")
-	c.cfs.StringVar(&c.args.Format, "Format", "", "CloudStack template Format ex. QCOW2")
-	c.cfs.StringVar(&c.args.HyperVisor, "hypervisor", "", "CloudStack hypervisor ex: KVM")
-	c.cfs.StringVar(&c.args.OSType, "os", "", "Template OS-type")
+	c.cfs.StringVar(&c.args.Format, "Format", os.Getenv("CSTU_FORMAT"), "CloudStack template Format ex. QCOW2")
+	c.cfs.StringVar(&c.args.HyperVisor, "hypervisor", os.Getenv("CSTU_HYPER_VISOR"), "CloudStack hypervisor ex: KVM")
+	c.cfs.StringVar(&c.args.OSType, "os", os.Getenv("CSTU_OS_TYPE"), "Template OS-type")
 	c.cfs.StringVar(&c.args.TemplateTag, "tag", "", "Template tag")
-	c.cfs.StringVar(&c.args.Zone, "zone", "", "CloudStack Zone Name")
+	c.cfs.StringVar(&zones, "zone", os.Getenv("CSTU_ZONE"), "CloudStack Zone Names ex: qa1,qa2,qa3")
 	c.cfs.StringVar(&c.args.ProjectID, "projectID", "", "CloudStack ProjectID")
 
 	c.cfs.BoolVar(&c.args.IsPublic, "isPublic", false, "Set the template to public default: false")
@@ -85,6 +89,9 @@ func (c *Command) setupFlags(args []string) error {
 	c.cfs.BoolVar(&c.args.PasswordEnabled, "passwdEnabled", false, "Set the template to Password Enabled default: false")
 	c.cfs.BoolVar(&c.args.system, "system-service", false, "Use the system httpd service. Must still have a directory at /opt/cows")
 
+	environment.Zones = append(environment.Zones, strings.Split(zones, ",")...)
+	c.args.CSEnvironments = append(c.args.CSEnvironments, environment)
+
 	if c.args.debug {
 		c.Log.Level(zerolog.DebugLevel)
 	}
@@ -96,8 +103,20 @@ func (c *Command) setupFlags(args []string) error {
 
 func (c *Command) requiredPassed() error {
 
-	if c.args.Zone == "" {
-		return fmt.Errorf("--zone must be passed")
+	for _, e := range c.args.CSEnvironments {
+		if len(e.Zones) == 0 {
+			return fmt.Errorf("no zones for %s has not been set, please either specify a list of zones", e.Name)
+		}
+		if e.APIURL == "" {
+			return fmt.Errorf("api url must was not passed for %s environment", e.Name)
+		}
+
+		if e.APIKey == "" {
+			return fmt.Errorf("api key must was not passed for %s environment", e.Name)
+		}
+		if e.APISecret == "" {
+			return fmt.Errorf("api secret must was not passed for %s environment", e.Name)
+		}
 	}
 
 	if c.args.Name == "" {
@@ -122,17 +141,6 @@ func (c *Command) requiredPassed() error {
 
 	if c.args.OSType == "" {
 		return fmt.Errorf("--os must be passed")
-	}
-
-	if c.args.APIURL == "" {
-		return fmt.Errorf("--url must be either passed or set with envar $CLOUDSTACK_API_URL")
-	}
-
-	if c.args.APIKey == "" {
-		return fmt.Errorf("--api-key must be either passed or set with envar $CLOUDSTACK_API_KEY")
-	}
-	if c.args.APISecret == "" {
-		return fmt.Errorf("--secret-key must be either passed or set with envar $CLOUDSTACK_SECRET_KEY")
 	}
 
 	if c.args.HostIP == "" {
@@ -201,8 +209,6 @@ func (c *Command) Help() string {
 
 func (c *Command) register(args []string) int {
 	var err error
-	var exists = false
-	var existingID string
 
 	c.Log.Info().Msgf("Config File: %s", c.args.configFile)
 	if c.args.configFile != "" {
@@ -233,7 +239,7 @@ func (c *Command) register(args []string) int {
 		return 1
 	}
 
-	if err := c.mvTemplateForWeb(); err != nil {
+	if err := c.templateToWebRoot(); err != nil {
 		c.Log.Error().Msgf("%s", err)
 		return 1
 	}
@@ -246,105 +252,120 @@ func (c *Command) register(args []string) int {
 
 	c.urlPath = fmt.Sprintf("http://%s", c.args.HostIP)
 
-	cs := cloudstack.NewClient(c.args.APIURL, c.args.APIKey, c.args.APISecret, false)
+	for _, e := range c.args.CSEnvironments {
 
-	c.Log.Info().Msgf("Getting os id for %s", c.args.OSType)
-	c.args.osID, err = c.getOSID(cs, c.args.OSType)
+		var exists = false
+		var existingID string
 
-	if err != nil {
-		c.Log.Error().Msgf("%s", err)
-		return 1
-	}
-	c.Log.Info().Msgf("Getting Zone id for %s", c.args.Zone)
-	c.args.zoneID, _, err = cs.Zone.GetZoneID(c.args.Zone)
+		c.Log.Debug().Msgf("APIUrl: %s", e.APIURL)
+		c.Log.Debug().Msgf("APIKey: %s", e.APIKey)
+		c.Log.Debug().Msgf("SecretKey: %s", e.APISecret)
 
-	if err != nil {
-		c.Log.Error().Msgf("%s", err)
-		return 1
-	}
+		cs := cloudstack.NewClient(e.APIURL, e.APIKey, e.APISecret, false)
 
-	c.Log.Info().Msgf("Checking if template %s exists", c.args.Name)
-	templ := c.checkTemplateExists(cs, c.args.Name, c.args.zoneID)
+		c.Log.Info().Msgf("Getting os id for %s", c.args.OSType)
+		c.args.osID, err = c.getOSID(cs, c.args.OSType)
 
-	if templ != nil {
-		c.Log.Info().Msgf("Found a template with the same Name, saving ID %s for deletion later", templ.Id)
-		c.args.TemplateTag = templ.Templatetag
-		exists = true
-		existingID = templ.Id
-	}
-
-	if !c.args.system {
-		if errCode := c.startWebContainer(); errCode != 0 {
-			return errCode
-		}
-	} else {
-		if err := checkSystemHTTPPort(); err != nil {
-			c.Log.Error().Msgf("Error checking host http service port: %s. Trying to start docker container")
-			c.args.system = false
-			if errCode := c.startWebContainer(); errCode != 0 {
-				return errCode
-			}
-		}
-	}
-
-	newTempl, err := c.registerTemplate(cs)
-
-	if err != nil {
-		c.Log.Error().Msgf("%s", err)
-
-		if !c.args.system {
-			c.Log.Info().Msg("Cleaning up docker container")
-			if err := c.deleteContainer(c.cID); err != nil {
-				c.Log.Error().Msgf("%s", err)
-				return 1
-			}
-		}
-		return 1
-	}
-
-	var newID string
-
-	c.Log.Info().Msg("Grabbing new template ID")
-	for _, t := range newTempl.RegisterTemplate {
-		if t.Name == c.args.Name && t.Id != existingID {
-			newID = t.Id
-			break
-		}
-	}
-
-	c.Log.Info().Msgf("Waiting for new template to be ready")
-	if err := c.watchRegisteredTemplate(cs, newID); err != nil {
-		c.Log.Error().Msgf("%s", err)
-		if !c.args.system {
-			c.Log.Info().Msg("Cleaning up docker container")
-			if err := c.deleteContainer(c.cID); err != nil {
-				c.Log.Error().Msgf("%s", err)
-				return 1
-			}
-		}
-		return 1
-	}
-
-	if exists {
-		c.Log.Info().Msgf("Deleting old template id %s", existingID)
-		if err := c.deleteExistingTemplate(cs, existingID); err != nil {
+		if err != nil {
 			c.Log.Error().Msgf("%s", err)
 			return 1
 		}
-	}
 
-	if !c.args.system {
-		c.Log.Info().Msg("Stopping the httpd container")
-		if err := c.deleteContainer(c.cID); err != nil {
-			c.Log.Error().Msgf("%s", err)
-			return 1
+		c.Log.Info().Msgf("Zones %d", len(e.Zones))
+
+		for _, z := range e.Zones {
+
+			c.Log.Info().Msgf("Getting Zone id for %s", z)
+			c.args.zoneID, _, err = cs.Zone.GetZoneID(z)
+
+			if err != nil {
+				c.Log.Error().Msgf("%s", err)
+				return 1
+			}
+
+			c.Log.Info().Msgf("Checking if template %s exists", c.args.Name)
+			templ := c.checkTemplateExists(cs, c.args.Name, c.args.zoneID)
+
+			if templ != nil {
+				c.Log.Info().Msgf("Found a template with the same Name, saving ID %s for deletion later", templ.Id)
+				c.args.TemplateTag = templ.Templatetag
+				exists = true
+				existingID = templ.Id
+			}
+
+			if !c.args.system {
+				if errCode := c.startWebContainer(); errCode != 0 {
+					return errCode
+				}
+			} else {
+				if err := checkSystemHTTPPort(); err != nil {
+					c.Log.Error().Msgf("Error checking host http service port: %s. Trying to start docker container")
+					c.args.system = false
+					if errCode := c.startWebContainer(); errCode != 0 {
+						return errCode
+					}
+				}
+			}
+
+			newTempl, err := c.registerTemplate(cs)
+
+			if err != nil {
+				c.Log.Error().Msgf("%s", err)
+
+				if !c.args.system {
+					c.Log.Info().Msg("Cleaning up docker container")
+					if err := c.deleteContainer(c.cID); err != nil {
+						c.Log.Error().Msgf("%s", err)
+						return 1
+					}
+				}
+				return 1
+			}
+
+			var newID string
+
+			c.Log.Info().Msg("Grabbing new template ID")
+			for _, t := range newTempl.RegisterTemplate {
+				if t.Name == c.args.Name && t.Id != existingID {
+					newID = t.Id
+					break
+				}
+			}
+
+			c.Log.Info().Msgf("Waiting for new template to be ready")
+			if err := c.watchRegisteredTemplate(cs, newID); err != nil {
+				c.Log.Error().Msgf("%s", err)
+				if !c.args.system {
+					c.Log.Info().Msg("Cleaning up docker container")
+					if err := c.deleteContainer(c.cID); err != nil {
+						c.Log.Error().Msgf("%s", err)
+						return 1
+					}
+				}
+				return 1
+			}
+
+			if exists {
+				c.Log.Info().Msgf("Deleting old template id %s", existingID)
+				c.deleteExistingTemplate(cs, existingID)
+			}
+
+			if !c.args.system {
+				c.Log.Info().Msg("Stopping the httpd container")
+				if err := c.deleteContainer(c.cID); err != nil {
+					c.Log.Error().Msgf("%s", err)
+					return 1
+				}
+			}
+			c.Log.Info().Msgf("Your new Template %s with ID %s is ready for use", c.args.Name, newID)
+
 		}
+
 	}
-	c.Log.Info().Msgf("Your new Template %s with ID %s is ready for use", c.args.Name, newID)
 
 	if c.args.cleanup {
 		if err := os.Remove(fmt.Sprintf("%s/%s.qcow2", webPath, c.args.Name)); err != nil {
-			c.Log.Error().Msgf("Could not remove the template from the %s, please remove manually: %s",
+			c.Log.Error().Msgf("Could not cleanup the template from the %s, please remove manually: %s",
 				fmt.Sprintf("%s/%s.qcow2", webPath, c.args.Name), err)
 			return 0
 		}
