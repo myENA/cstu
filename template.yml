@@ -1,11 +1,9 @@
 name: ""
-apiURL: ""
-apiSecret: ""
-apiKey: ""
+environments: []
 hostIP: ""
 templateFile: ""
+templateID: ""
 osType: ""
-zone: ""
 format: ""
 hypervisor: ""
 displayText: ""
@@ -13,9 +11,9 @@ isPublic: false
 isFeatured: false
 passwordEnabled: false
 isDynamic: false
-isExtractable: false
+isExtractable: true
 isRouting: false
 requiresHVM: false
 sshKeyEnabled: false
-projectID: ""
 templateTag: ""
+resourceTags: {}
