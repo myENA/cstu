@@ -1,10 +1,8 @@
 package cmd
 
 import (
-	"fmt"
 	"github.com/rs/zerolog"
 	"net"
-	"strings"
 )
 
 type CloudstackEnvironment struct {
@@ -35,6 +33,7 @@ type TemplateYAML struct {
 	SSHKeyEnabled   bool                    `yaml:"sshKeyEnabled"`
 	ProjectID       string                  `yaml:"projectID,omitempty"`
 	TemplateTag     string                  `yaml:"templateTag"`
+	ResourceTags    map[string]string       `yaml:"resourceTags"`
 }
 
 // Get preferred outbound ip of this machine
@@ -52,51 +51,19 @@ func GetOutboundIP() string {
 	return localAddr.IP.String()
 }
 
-func (t *TemplateYAML) CheckRequired() error {
+type AsyncJobResultsJobresult struct {
+	Success bool `json:"success"`
+}
 
-	for _, e := range t.CSEnvironments {
-		if len(e.Zones) == 0 {
-			return fmt.Errorf("no zones for %s has not been set, please either specify a list of zones", e.Name)
-		}
-		if e.APIURL == "" {
-			return fmt.Errorf("api url must was not passed for %s environment", e.Name)
-		}
-
-		if e.APIKey == "" {
-			return fmt.Errorf("api key must was not passed for %s environment", e.Name)
-		}
-		if e.APISecret == "" {
-			return fmt.Errorf("api secret must was not passed for %s environment", e.Name)
-		}
-	}
-
-	if t.Name == "" {
-		return fmt.Errorf("--Name must  be passed")
-	}
-
-	if t.DisplayText == "" {
-		return fmt.Errorf("--DisplayText must be passed")
-	}
-
-	if t.Format == "" {
-		return fmt.Errorf("--Format must be passed")
-	}
-
-	if !strings.ContainsAny("QCOW2 RAW VHD OVA", strings.ToUpper(t.Format)) {
-		return fmt.Errorf("supported formats are QCOW2, RAW, VHD and OVA")
-	}
-
-	if t.HyperVisor == "" {
-		return fmt.Errorf("--hypervisor must be passed")
-	}
-
-	if t.OSType == "" {
-		return fmt.Errorf("--os must be passed")
-	}
-
-	if t.HostIP == "" {
-		return fmt.Errorf("--host-ip must be passed and must be reachable by cloudstack")
-	}
-
-	return nil
+type AsyncJobResults struct {
+	Accountid     string                    `json:"accountid"`
+	Cmd           string                    `json:"cmd"`
+	Created       string                    `json:"created"`
+	Jobid         string                    `json:"jobid"`
+	Jobprocstatus float64                   `json:"jobprocstatus"`
+	Jobresult     *AsyncJobResultsJobresult `json:"jobresult"`
+	Jobresultcode float64                   `json:"jobresultcode"`
+	Jobresulttype string                    `json:"jobresulttype"`
+	Jobstatus     float64                   `json:"jobstatus"`
+	Userid        string                    `json:"userid"`
 }

@@ -36,6 +36,8 @@ type Options struct {
 	debug            bool
 	cleanup          bool
 	system           bool
+	setResourceTags  bool
+	resourceTags     string
 }
 
 // Command represents the upload subcommand
@@ -58,43 +60,11 @@ func (c *Command) setupFlags(args []string) error {
 		c.args = new(Options)
 	}
 
-	environment := cmd.CloudstackEnvironment{}
-	var zones string
-
 	c.cfs = flag.NewFlagSet("upload", flag.ExitOnError)
-	c.cfs.StringVar(&environment.APIURL, "url", os.Getenv("CLOUDSTACK_API_URL"), "CloudStack API URL [$CLOUDSTACK_API_URL]")
-	c.cfs.StringVar(&environment.APIKey, "api-key", os.Getenv("CLOUDSTACK_API_KEY"), "CloudStack API KEY [$CLOUDSTACK_API_KEY]")
-	c.cfs.StringVar(&environment.APISecret, "api-secret", os.Getenv("CLOUDSTACK_SECRET_KEY"), "CloudStack API URL [$CLOUDSTACK_SECRET_KEY]")
-	c.cfs.StringVar(&c.args.HostIP, "host-ip", "", "The host IP address, must be reachable by CloudStack")
 	c.cfs.StringVar(&c.args.configFile, "configFile", "", "Template yaml file")
-	c.cfs.StringVar(&c.args.TemplateFile, "template-path", os.Getenv("CSTU_TEMPLATEFILE"), "Path to the template file to upload to CloudStack")
-	c.cfs.StringVar(&c.args.Name, "Name", os.Getenv("CSTU_TEMPLATE_NAME"), "CloudStack template Name")
-	c.cfs.StringVar(&c.args.DisplayText, "DisplayText", "", "CloudStack display text")
-	c.cfs.StringVar(&c.args.Format, "Format", os.Getenv("CSTU_FORMAT"), "CloudStack template Format ex. QCOW2")
-	c.cfs.StringVar(&c.args.HyperVisor, "hypervisor", os.Getenv("CSTU_HYPER_VISOR"), "CloudStack hypervisor ex: KVM")
-	c.cfs.StringVar(&c.args.OSType, "os", os.Getenv("CSTU_OS_TYPE"), "Template OS-type")
-	c.cfs.StringVar(&c.args.TemplateTag, "tag", "", "Template tag")
-	c.cfs.StringVar(&zones, "zone", os.Getenv("CSTU_ZONE"), "CloudStack Zone Names ex: qa1,qa2,qa3")
-	c.cfs.StringVar(&c.args.ProjectID, "projectID", "", "CloudStack ProjectID")
-
-	c.cfs.BoolVar(&c.args.IsPublic, "isPublic", false, "Set the template to public default: false")
-	c.cfs.BoolVar(&c.args.IsDynamic, "isDynamic", false, "Set if template contains XS/VMWare tools inorder to support dynamic scaling of VM cpu/memory default: false")
-	c.cfs.BoolVar(&c.args.SSHKeyEnabled, "sshKeyEnabled", false, "Set if template supports the sshkey upload feature default: false")
-	c.cfs.BoolVar(&c.args.RequiresHVM, "hvm", false, "Set if this template requires HVM default: false")
-	c.cfs.BoolVar(&c.args.IsExtractable, "extractable", true, "Set if the template or its derivatives are extractable default: false")
-	c.cfs.BoolVar(&c.args.IsRouting, "isRouting", false, "Set if the template type is routing i.e., if template is used to deploy router default: false")
-	c.cfs.BoolVar(&c.args.IsFeatured, "isFeatured", false, "Set the template to featured default: false")
-	c.cfs.BoolVar(&c.args.debug, "debug", false, "Enable debugging logs")
 	c.cfs.BoolVar(&c.args.cleanup, "cleanup", false, "Remove the template from webroot after cleanup")
-	c.cfs.BoolVar(&c.args.PasswordEnabled, "passwdEnabled", false, "Set the template to Password Enabled default: false")
+	c.cfs.BoolVar(&c.args.debug, "debug", false, "Enable debug logs")
 	c.cfs.BoolVar(&c.args.system, "system-service", false, "Use the system httpd service. Must still have a directory at /opt/cows")
-
-	environment.Zones = append(environment.Zones, strings.Split(zones, ",")...)
-	c.args.CSEnvironments = append(c.args.CSEnvironments, environment)
-
-	if c.args.debug {
-		c.Log.Level(zerolog.DebugLevel)
-	}
 
 	// always okay
 	return c.cfs.Parse(args)
@@ -210,28 +180,32 @@ func (c *Command) Help() string {
 func (c *Command) register(args []string) int {
 	var err error
 
-	c.Log.Info().Msgf("Config File: %s", c.args.configFile)
-	if c.args.configFile != "" {
+	if c.args.configFile == "" {
+		c.Log.Error().Msg("A config file must be passed")
+		return 1
+	}
 
-		c.Log.Info().Msgf("Reading config file at %s", c.args.configFile)
-		configFile, err := ioutil.ReadFile(c.args.configFile)
+	c.Log.Info().Msgf("Reading config file at %s", c.args.configFile)
+	configFile, err := ioutil.ReadFile(c.args.configFile)
 
-		if err != nil {
-			c.Log.Error().Msgf("%s", err)
-			return 1
-		}
+	if err != nil {
+		c.Log.Error().Msgf("%s", err)
+		return 1
+	}
 
-		if err := yaml.Unmarshal(configFile, &c.args); err != nil {
-			c.Log.Error().Msgf("%s", err)
-			return 1
-		}
-
+	if err := yaml.Unmarshal(configFile, &c.args); err != nil {
+		c.Log.Error().Msgf("%s", err)
+		return 1
 	}
 
 	// Make sure required Options are set
 	if err = c.requiredPassed(); err != nil {
 		c.Log.Error().Msg(err.Error())
 		return 1
+	}
+
+	if c.args.debug {
+		c.Log.Level(zerolog.DebugLevel)
 	}
 
 	if _, err := os.Stat(c.args.TemplateFile); os.IsNotExist(err) {
@@ -261,7 +235,7 @@ func (c *Command) register(args []string) int {
 		c.Log.Debug().Msgf("APIKey: %s", e.APIKey)
 		c.Log.Debug().Msgf("SecretKey: %s", e.APISecret)
 
-		cs := cloudstack.NewClient(e.APIURL, e.APIKey, e.APISecret, false)
+		cs := cloudstack.NewAsyncClient(e.APIURL, e.APIKey, e.APISecret, false)
 
 		c.Log.Info().Msgf("Getting os id for %s", c.args.OSType)
 		c.args.osID, err = c.getOSID(cs, c.args.OSType)
@@ -343,6 +317,14 @@ func (c *Command) register(args []string) int {
 					}
 				}
 				return 1
+			}
+
+			if c.args.ResourceTags != nil {
+				c.Log.Info().Msgf("Creating resource tags for the new template: %s", c.args.Name)
+				if err := c.createResourceTags(cs, newID); err != nil {
+					c.Log.Error().Msgf("%s", err)
+					return 1
+				}
 			}
 
 			if exists {

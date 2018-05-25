@@ -1,7 +1,9 @@
 package upload
 
 import (
+	"encoding/json"
 	"fmt"
+	"github.com/myENA/cstu/cmd"
 	"github.com/pkg/errors"
 	"github.com/xanzy/go-cloudstack/cloudstack"
 	"strings"
@@ -131,11 +133,64 @@ func (c *Command) deleteExistingTemplate(cs *cloudstack.CloudStackClient, existi
 
 	c.Log.Info().Msgf("Response: %+v", delResp.Success)
 
-	if delResp.Success {
+	success, err := c.getJobStatus(cs, delResp.JobID)
 
-		c.Log.Error().Msgf("deleting the existing template failed, please manually delete it from CloudStack: %s", delResp.Displaytext)
-	} else {
-		c.Log.Info().Msgf("Template deleted: %s", delResp.Displaytext)
+	if err != nil {
+		c.Log.Error().Msgf("Error deleting template id %s: %s", existing, err)
 	}
+
+	if !success {
+		c.Log.Error().Msgf("Error deleting %s, you may need to manually delete the template from CloudStack", existing)
+		return
+	}
+
+	c.Log.Info().Msgf("Successfully deleted template id: %s", existing)
+
+}
+
+func (c *Command) createResourceTags(cs *cloudstack.CloudStackClient, templID string) error {
+
+	resourceIds := []string{templID}
+
+	tagsReqParams := cs.Resourcetags.NewCreateTagsParams(resourceIds, "Template", c.args.ResourceTags)
+
+	resp, err := cs.Resourcetags.CreateTags(tagsReqParams)
+
+	if err != nil {
+		return err
+	}
+
+	success, err := c.getJobStatus(cs, resp.JobID)
+
+	if err != nil {
+		return fmt.Errorf("error creating resource tags for %s: %s", templID, err)
+	}
+
+	if !success {
+		return fmt.Errorf("resource tags failed to be applied for %s, please manually edit them from the CloudsStack ui", templID)
+
+	}
+
+	c.Log.Info().Msgf("Successfully created resource tags for: %s", templID)
+
+	return nil
+}
+
+func (c *Command) getJobStatus(cs *cloudstack.CloudStackClient, jobID string) (bool, error) {
+	asyncParams := cs.Asyncjob.NewQueryAsyncJobResultParams(jobID)
+
+	resp, err := cs.Asyncjob.QueryAsyncJobResult(asyncParams)
+
+	if err != nil {
+		return false, err
+	}
+
+	results := &cmd.AsyncJobResults{}
+
+	if err := json.Unmarshal(resp.Jobresult, results); err != nil {
+		return false, err
+	}
+
+	return results.Jobresult.Success, nil
 
 }
