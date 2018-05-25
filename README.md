@@ -1,7 +1,5 @@
 # Cloudstack Template Updater
-A small project to upload cloudstack templates, we use it as apart of a template update process. Creation of this cli app 
-was driven by the desire to automate cloudstack template builds and updates. 
-
+A small project to register cloudstack templates. It's main use is apart of an automated build system to keep CloudStack OS templates updated.
 
 ## Requirements
 - Docker 17.0.6 ~ 18.0
@@ -95,26 +93,11 @@ templateTag: "version=12.3"
 ```bash
 cstu upload --configFile template.yml
 ```
-
-##### Without config file
-```bash
-cstu upload --zone ZONE_NAME --template /path/to/template --format qcow2 --hypervisor kvm \
-  --url http://cs/api/url --api-key APIKEY --secret-key SECRETKEY \
-  --name TemplateName --host-ip YourHostIP --os "CentOS 7" \
-  --displayText "Centos Docker Image"
-```
-##### Without docker container
+##### Using systems HTTP service instead of docker container
 ```bash
 cstu upload --configFile conf.yml --system-service
 ```
 
-##### Download template
-```bash
-$ ./cstu dl --templateID f7575949-22f1-4818-ab5e-462f3f4476af --zoneID 34b1a1a0-a8ba-47d1-a074-fb29bd5fe5f2
-
-2018-04-11T13:11:23-05:00 |INFO| Downloading template from http://10.172.0.4/userdata/bbe010ed-7301-481a-a3f0-19ba2dfbe45d.qcow2
-2018-04-11T13:11:43-05:00 |INFO| Wrote template  size: 1588461568
-```
 ## Build
 
 ```bash
