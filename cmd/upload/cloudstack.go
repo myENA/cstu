@@ -1,9 +1,7 @@
 package upload
 
 import (
-	"encoding/json"
 	"fmt"
-	"github.com/myENA/cstu/cmd"
 	"github.com/pkg/errors"
 	"github.com/xanzy/go-cloudstack/cloudstack"
 	"strings"
@@ -131,8 +129,6 @@ func (c *Command) deleteExistingTemplate(cs *cloudstack.CloudStackClient, existi
 		c.Log.Error().Msgf("Error deleting template id %s: %s", existing, err)
 	}
 
-	c.Log.Info().Msgf("Response: %+v", delResp.Success)
-
 	success, err := c.getJobStatus(cs, delResp.JobID)
 
 	if err != nil {
@@ -185,12 +181,10 @@ func (c *Command) getJobStatus(cs *cloudstack.CloudStackClient, jobID string) (b
 		return false, err
 	}
 
-	results := &cmd.AsyncJobResults{}
-
-	if err := json.Unmarshal(resp.Jobresult, results); err != nil {
-		return false, err
+	if resp.Jobresultcode != 0 {
+		return false, fmt.Errorf("deleting template failed: %s", resp.Jobresulttype)
 	}
 
-	return results.Jobresult.Success, nil
+	return true, nil
 
 }
